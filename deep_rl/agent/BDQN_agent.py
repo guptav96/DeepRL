@@ -87,7 +87,6 @@ class BDQNAgent(BaseAgent):
         self.total_steps = 0
 
     def bayes_regression(self):
-        print('bayes')
         self.ppt *= 0
         self.py *= 0 
         if self.total_steps > self.config.exploration_steps:

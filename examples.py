@@ -691,7 +691,7 @@ if __name__ == '__main__':
     # td3_continuous(game=game)
 
     game = 'PongNoFrameskip-v4'
-    bdqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=False)
+    bdqn_pixel(game=game, n_step=1, replay_cls=UniformReplay, async_replay=False)
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
     # rainbow_pixel(game=game, async_replay=False)
