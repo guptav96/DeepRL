@@ -34,7 +34,8 @@ class BDQNActor(BaseActor):
             self._network.reset_noise()
         with config.lock:
             prediction = self._network(config.state_normalizer(self._state))
-        q_values = self.compute_q(prediction)
+#         q_values = self.compute_q(prediction)
+        q_values = prediction['q']
 
         # if config.noisy_linear:
         #     epsilon = 0
@@ -43,7 +44,7 @@ class BDQNActor(BaseActor):
         # else:
         #     epsilon = config.random_action_prob()
         # action = epsilon_greedy(epsilon, q_values)
-        action = torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1)
+        action = to_np(torch.argmax(torch.matmul(q_values, self.sampled_mean.T), 1))
         next_state, reward, done, info = self._task.step(action)
         entry = [self._state, action, reward, next_state, done, info]
         self._total_steps += 1
@@ -86,21 +87,21 @@ class BDQNAgent(BaseAgent):
         self.total_steps = 0
 
     def bayes_regression(self):
+        print('bayes')
         self.ppt *= 0
         self.py *= 0 
         if self.total_steps > self.config.exploration_steps:
-            transitions = self.replay.sample(config.batch_size)
-            states = self.config.state_normalizer(transitions.state)
-            next_states = self.config.state_normalizer(transitions.next_state)
-            masks = tensor(transitions.mask)
-            rewards = tensor(transitions.reward)
-            actions = tensor(transitions.action).long()
-            # complete this
             with torch.no_grad():
-                for idx in range(config.batch_size):
-                    policy_state_rep, q, q_target =  find_qvals(states[idx], next_states[idx], masks[idx], rewards[idx], actions[idx])
-                    self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep.T, policy_state_rep)
-                    self.py[int(actions[idx])] += torch.matmul(policy_state_rep.T, q_target)
+                for idx in range(self.config.batch_size):
+                    transitions = self.replay.sample(1)
+                    states = self.config.state_normalizer(transitions.state)
+                    next_states = self.config.state_normalizer(transitions.next_state)
+                    masks = tensor(transitions.mask)
+                    rewards = tensor(transitions.reward)
+                    actions = tensor(transitions.action).long()
+                    policy_state_rep, q, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
+                    self.ppt[int(actions[0])] += torch.matmul(policy_state_rep.T, policy_state_rep)
+                    self.py[int(actions[0])] += torch.matmul(policy_state_rep.T, q_target)
 
             for idx in range(self.num_actions):
                 inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size))
@@ -159,7 +160,7 @@ class BDQNAgent(BaseAgent):
         masks = tensor(transitions.mask)
         rewards = tensor(transitions.reward)
         actions = tensor(transitions.action).long()
-        _, q, q_target = find_qvals(states, next_states, masks, rewards, actions)
+        _, q, q_target = self.find_qvals(states, next_states, masks, rewards, actions)
         loss = q_target - q
         return loss
 

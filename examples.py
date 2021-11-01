@@ -100,7 +100,7 @@ def bdqn_pixel(**kwargs):
     generate_tag(kwargs)
     kwargs.setdefault('log_level', 0)
     kwargs.setdefault('n_step', 1)
-    kwargs.setdefault('replay_cls', UniformReplay)
+    kwargs.setdefault('replay_cls', PrioritizedReplay)
     kwargs.setdefault('async_replay', True)
     config = Config()
     config.merge(kwargs)
@@ -134,8 +134,8 @@ def bdqn_pixel(**kwargs):
     config.exploration_steps = 50000
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
-    config.thompson_sampling_freq = 10000
-    config.bdqn_learn_frequency = 100000
+    config.thompson_sampling_freq = 1000
+    config.bdqn_learn_frequency = 10000
     config.prior_var = 0.001
     config.noise_var = 1
     config.var_k = 0.001
@@ -691,7 +691,7 @@ if __name__ == '__main__':
     # td3_continuous(game=game)
 
     game = 'PongNoFrameskip-v4'
-    bdqn_pixel(game=game, n_step=1, replay_cls=UniformReplay, async_replay=False)
+    bdqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=False)
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
     # rainbow_pixel(game=game, async_replay=False)
