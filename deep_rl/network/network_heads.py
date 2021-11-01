@@ -20,6 +20,15 @@ class VanillaNet(nn.Module, BaseNet):
         q = self.fc_head(phi)
         return dict(q=q)
 
+class BDQNNet(nn.Module, BaseNet):
+    def __init__(self, output_dim, body):
+        super(BDQNNet, self).__init__()
+        self.body = body
+        self.to(Config.DEVICE)
+
+    def forward(self, x):
+        q = self.body(tensor(x))
+        return dict(q=q)
 
 class DuelingNet(nn.Module, BaseNet):
     def __init__(self, action_dim, body):

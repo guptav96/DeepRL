@@ -13,14 +13,18 @@ from .BaseAgent import *
 
 
 class BDQNActor(BaseActor):
-    def __init__(self, config):
+    def __init__(self, config, sampled_mean=None):
         BaseActor.__init__(self, config)
         self.config = config
+        self.sampled_mean = sampled_mean
         self.start()
 
     def compute_q(self, prediction):
         q_values = to_np(prediction['q'])
         return q_values
+    
+    def update_mean(self, sampled_mean):
+        self.sampled_mean = sampled_mean
 
     def _transition(self):
         if self._state is None:
@@ -39,7 +43,7 @@ class BDQNActor(BaseActor):
         # else:
         #     epsilon = config.random_action_prob()
         # action = epsilon_greedy(epsilon, q_values)
-        action = int(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
+        action = torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1)
         next_state, reward, done, info = self._task.step(action)
         entry = [self._state, action, reward, next_state, done, info]
         self._total_steps += 1
@@ -54,7 +58,6 @@ class BDQNAgent(BaseAgent):
         config.lock = mp.Lock()
 
         self.replay = config.replay_fn()
-        self.actor = DQNActor(config)
 
         self.network = config.network_fn()
         self.network.share_memory()
@@ -69,15 +72,16 @@ class BDQNAgent(BaseAgent):
         self.sampled_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
         self.policy_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
         self.target_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
-        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size))) + torch.eye(self.layer_size)
+        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size)) + torch.eye(self.layer_size)
         self.cov_decom = self.policy_cov
-        for i in range(self.num_actions):
-            self.policy_cov[i] = torch.eye(self.layer_size)
-            self.cov_decom[i] = torch.cholesky((self.policy_cov + self.policy_cov.T)/.2)
+        for idx in range(self.num_actions):
+            self.policy_cov[idx] = torch.eye(self.layer_size)
+            self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx] + self.policy_cov[idx].T)/.2)
         self.target_cov = self.policy_cov
         self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size)
         self.py = torch.zeros(self.num_actions, self.layer_size)
-
+        
+        self.actor = BDQNActor(config, self.sampled_mean)
         self.actor.set_network(self.network)
         self.total_steps = 0
 
@@ -99,20 +103,21 @@ class BDQNAgent(BaseAgent):
                     self.py[int(actions[idx])] += torch.matmul(policy_state_rep.T, q_target)
 
             for idx in range(self.num_actions):
-                inv = torch.inverse(self.ppt[idx]./self.noise_var + 1./self.prior_var*torch.eye(self.layer_size))
-                self.policy_mean[idx] = torch.matmul(inv, self.py[idx])./self.noise_var
+                inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size))
+                self.policy_mean[idx] = torch.matmul(inv, self.py[idx])/self.noise_var
                 self.policy_cov[idx] = self.var_k * inv
             
             self.target_mean = self.policy_mean
             self.target_cov = self.policy_cov
 
             for idx in range(self.num_actions):
-                self.cov_decom[idx] = torch.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)./2)
+                self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)/2)
 
     def thompson_sample(self):
         for idx in range(self.num_actions):
             sample = torch.normal(0, 1, size=(self.layer_size, 1))
             self.sampled_mean[idx] = self.policy_mean[idx] + torch.matmul(self.cov_decom[idx], sample).T
+        self.actor.update_mean(self.sampled_mean)
 
     def close(self):
         close_obj(self.replay)
@@ -122,7 +127,7 @@ class BDQNAgent(BaseAgent):
         self.config.state_normalizer.set_read_only()
         state = self.config.state_normalizer(state)
         q = self.network(state)['q']
-        action = int(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
+        action = to_np(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
         # action = to_np(q.argmax(-1))
         self.config.state_normalizer.unset_read_only()
         return action

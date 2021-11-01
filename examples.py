@@ -66,7 +66,7 @@ def dqn_pixel(**kwargs):
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
         params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
-    config.network_fn = lambda: BDQNNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
+    config.network_fn = lambda: VanillaNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     # config.network_fn = lambda: DuelingNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     config.random_action_prob = LinearSchedule(1.0, 0.01, 1e6)
     config.batch_size = 32
@@ -110,7 +110,7 @@ def bdqn_pixel(**kwargs):
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
         params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
-    config.network_fn = lambda: NatureConvBody(in_channels=config.history_length)
+    config.network_fn = lambda: BDQNNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     # config.network_fn = lambda: DuelingNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     config.batch_size = 32
     config.discount = 0.99
@@ -134,7 +134,7 @@ def bdqn_pixel(**kwargs):
     config.exploration_steps = 50000
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
-    config.thompson_sampling_freq = 1000
+    config.thompson_sampling_freq = 10000
     config.bdqn_learn_frequency = 100000
     config.prior_var = 0.001
     config.noise_var = 1
@@ -690,7 +690,7 @@ if __name__ == '__main__':
     # ddpg_continuous(game=game)
     # td3_continuous(game=game)
 
-    game = 'BreakoutNoFrameskip-v4'
+    game = 'PongNoFrameskip-v4'
     bdqn_pixel(game=game, n_step=1, replay_cls=UniformReplay, async_replay=False)
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
