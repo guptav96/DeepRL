@@ -1,0 +1,203 @@
+#######################################################################
+# Copyright (C) 2017 Shangtong Zhang(zhangshangtong.cpp@gmail.com)    #
+# Permission given to modify the code as long as you keep this        #
+# declaration at the top                                              #
+#######################################################################
+
+from ..network import *
+from ..component import *
+from ..utils import *
+import time
+import math
+from .BaseAgent import *
+
+
+class BDQNActor(BaseActor):
+    def __init__(self, config):
+        BaseActor.__init__(self, config)
+        self.config = config
+        self.start()
+
+    def compute_q(self, prediction):
+        q_values = to_np(prediction['q'])
+        return q_values
+
+    def _transition(self):
+        if self._state is None:
+            self._state = self._task.reset()
+        config = self.config
+        if config.noisy_linear:
+            self._network.reset_noise()
+        with config.lock:
+            prediction = self._network(config.state_normalizer(self._state))
+        q_values = self.compute_q(prediction)
+
+        # if config.noisy_linear:
+        #     epsilon = 0
+        # elif self._total_steps < config.exploration_steps:
+        #     epsilon = 1
+        # else:
+        #     epsilon = config.random_action_prob()
+        # action = epsilon_greedy(epsilon, q_values)
+        action = int(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
+        next_state, reward, done, info = self._task.step(action)
+        entry = [self._state, action, reward, next_state, done, info]
+        self._total_steps += 1
+        self._state = next_state
+        return entry
+
+
+class BDQNAgent(BaseAgent):
+    def __init__(self, config):
+        BaseAgent.__init__(self, config)
+        self.config = config
+        config.lock = mp.Lock()
+
+        self.replay = config.replay_fn()
+        self.actor = DQNActor(config)
+
+        self.network = config.network_fn()
+        self.network.share_memory()
+        self.target_network = config.network_fn()
+        self.target_network.load_state_dict(self.network.state_dict())
+        self.optimizer = config.optimizer_fn(self.network.parameters())
+        self.prior_var = config.prior_var
+        self.noise_var = config.noise_var
+        self.var_k = config.var_k
+        self.num_actions = config.action_dim
+        self.layer_size = 512
+        self.sampled_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
+        self.policy_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
+        self.target_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
+        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size))) + torch.eye(self.layer_size)
+        self.cov_decom = self.policy_cov
+        for i in range(self.num_actions):
+            self.policy_cov[i] = torch.eye(self.layer_size)
+            self.cov_decom[i] = torch.cholesky((self.policy_cov + self.policy_cov.T)/.2)
+        self.target_cov = self.policy_cov
+        self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size)
+        self.py = torch.zeros(self.num_actions, self.layer_size)
+
+        self.actor.set_network(self.network)
+        self.total_steps = 0
+
+    def bayes_regression(self):
+        self.ppt *= 0
+        self.py *= 0 
+        if self.total_steps > self.config.exploration_steps:
+            transitions = self.replay.sample(config.batch_size)
+            states = self.config.state_normalizer(transitions.state)
+            next_states = self.config.state_normalizer(transitions.next_state)
+            masks = tensor(transitions.mask)
+            rewards = tensor(transitions.reward)
+            actions = tensor(transitions.action).long()
+            # complete this
+            with torch.no_grad():
+                for idx in range(config.batch_size):
+                    policy_state_rep, q, q_target =  find_qvals(states[idx], next_states[idx], masks[idx], rewards[idx], actions[idx])
+                    self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep.T, policy_state_rep)
+                    self.py[int(actions[idx])] += torch.matmul(policy_state_rep.T, q_target)
+
+            for idx in range(self.num_actions):
+                inv = torch.inverse(self.ppt[idx]./self.noise_var + 1./self.prior_var*torch.eye(self.layer_size))
+                self.policy_mean[idx] = torch.matmul(inv, self.py[idx])./self.noise_var
+                self.policy_cov[idx] = self.var_k * inv
+            
+            self.target_mean = self.policy_mean
+            self.target_cov = self.policy_cov
+
+            for idx in range(self.num_actions):
+                self.cov_decom[idx] = torch.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)./2)
+
+    def thompson_sample(self):
+        for idx in range(self.num_actions):
+            sample = torch.normal(0, 1, size=(self.layer_size, 1))
+            self.sampled_mean[idx] = self.policy_mean[idx] + torch.matmul(self.cov_decom[idx], sample).T
+
+    def close(self):
+        close_obj(self.replay)
+        close_obj(self.actor)
+
+    def eval_step(self, state):
+        self.config.state_normalizer.set_read_only()
+        state = self.config.state_normalizer(state)
+        q = self.network(state)['q']
+        action = int(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
+        # action = to_np(q.argmax(-1))
+        self.config.state_normalizer.unset_read_only()
+        return action
+
+    def reduce_loss(self, loss):
+        return loss.pow(2).mul(0.5).mean()
+    
+    def find_qvals(self, states, next_states, masks, rewards, actions):
+        config = self.config
+        with torch.no_grad():
+            # sampled_mean dim num_action * layer_size
+            # q_next = self.target_network(next_states)['q'].detach()
+            q_next = torch.matmul(self.target_network(next_states)['q'].detach(), self.target_mean.T)
+            if self.config.double_q:
+                best_actions = torch.matmul(self.network(next_states)['q'], self.policy_mean.T).max(1)[1]
+                # best_actions = torch.argmax(self.network(next_states)['q'], dim=-1)
+                q_next = q_next.gather(1, best_actions.unsqueeze(-1)).squeeze(1)
+            else:
+                q_next = q_next.max(1)[0]
+        q_target = rewards + self.config.discount ** config.n_step * q_next * masks
+        policy_state_rep = self.network(states)['q']
+        q = torch.matmul(policy_state_rep, self.policy_mean.T)
+        q = q.gather(1, actions.unsqueeze(-1)).squeeze(-1)
+        return policy_state_rep, q, q_target
+
+    def compute_loss(self, transitions):
+        states = self.config.state_normalizer(transitions.state)
+        next_states = self.config.state_normalizer(transitions.next_state)
+        masks = tensor(transitions.mask)
+        rewards = tensor(transitions.reward)
+        actions = tensor(transitions.action).long()
+        _, q, q_target = find_qvals(states, next_states, masks, rewards, actions)
+        loss = q_target - q
+        return loss
+
+    def step(self):
+        config = self.config
+        transitions = self.actor.step()
+        for states, actions, rewards, next_states, dones, info in transitions:
+            self.record_online_return(info)
+            self.total_steps += 1
+            self.replay.feed(dict(
+                state=np.array([s[-1] if isinstance(s, LazyFrames) else s for s in states]),
+                action=actions,
+                reward=[config.reward_normalizer(r) for r in rewards],
+                mask=1 - np.asarray(dones, dtype=np.int32),
+            ))
+
+        if self.total_steps > self.config.exploration_steps:
+            transitions = self.replay.sample()
+            loss = self.compute_loss(transitions)
+            if isinstance(transitions, PrioritizedTransition):
+                priorities = loss.abs().add(config.replay_eps).pow(config.replay_alpha)
+                idxs = tensor(transitions.idx).long()
+                self.replay.update_priorities(zip(to_np(idxs), to_np(priorities)))
+                sampling_probs = tensor(transitions.sampling_prob)
+                weights = sampling_probs.mul(sampling_probs.size(0)).add(1e-6).pow(-config.replay_beta())
+                weights = weights / weights.max()
+                loss = loss.mul(weights)
+
+            loss = self.reduce_loss(loss)
+            self.optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(self.network.parameters(), self.config.gradient_clip)
+            with config.lock:
+                self.optimizer.step()
+
+        if self.total_steps / self.config.sgd_update_frequency % \
+                self.config.target_network_update_freq == 0:
+            self.target_network.load_state_dict(self.network.state_dict())
+        
+        if self.total_steps / self.config.sgd_update_frequency % \
+                self.config.bdqn_learn_frequency == 0:
+            self.bayes_regression()
+
+        if self.total_steps / self.config.sgd_update_frequency % \
+                self.config.thompson_sampling_freq == 0:
+            self.thompson_sample()
