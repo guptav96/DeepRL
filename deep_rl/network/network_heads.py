@@ -21,7 +21,7 @@ class VanillaNet(nn.Module, BaseNet):
         return dict(q=q)
 
 class BDQNNet(nn.Module, BaseNet):
-    def __init__(self, output_dim, body):
+    def __init__(self, body):
         super(BDQNNet, self).__init__()
         self.body = body
         self.to(Config.DEVICE)

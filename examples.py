@@ -110,8 +110,7 @@ def bdqn_pixel(**kwargs):
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
         params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
-    config.network_fn = lambda: BDQNNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
-    # config.network_fn = lambda: DuelingNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
+    config.network_fn = lambda: BDQNNet(NatureConvBody(in_channels=config.history_length))
     config.batch_size = 32
     config.discount = 0.99
     config.history_length = 4
@@ -135,7 +134,7 @@ def bdqn_pixel(**kwargs):
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
     config.thompson_sampling_freq = 1000
-    config.bdqn_learn_frequency = 10000
+    config.bdqn_learn_frequency = 20000
     config.prior_var = 0.001
     config.noise_var = 1
     config.var_k = 0.001

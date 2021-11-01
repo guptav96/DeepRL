@@ -70,9 +70,9 @@ class BDQNAgent(BaseAgent):
         self.var_k = config.var_k
         self.num_actions = config.action_dim
         self.layer_size = 512
-        self.sampled_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
-        self.policy_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
-        self.target_mean = torch.normal(0, math.sqrt(self.noise_var), size=(self.num_actions, self.layer_size))
+        self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
+        self.policy_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
+        self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
         self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size)) + torch.eye(self.layer_size)
         self.cov_decom = self.policy_cov
         for idx in range(self.num_actions):
@@ -100,7 +100,7 @@ class BDQNAgent(BaseAgent):
                     actions = tensor(transitions.action).long()
                     policy_state_rep, q, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
                     self.ppt[int(actions[0])] += torch.matmul(policy_state_rep.T, policy_state_rep)
-                    self.py[int(actions[0])] += torch.matmul(policy_state_rep.T, q_target)
+                    self.py[int(actions[0])] += policy_state_rep[0].T * q_target
 
             for idx in range(self.num_actions):
                 inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size))
@@ -116,7 +116,7 @@ class BDQNAgent(BaseAgent):
     def thompson_sample(self):
         for idx in range(self.num_actions):
             sample = torch.normal(0, 1, size=(self.layer_size, 1))
-            self.sampled_mean[idx] = self.policy_mean[idx] + torch.matmul(self.cov_decom[idx], sample).T
+            self.sampled_mean[idx] = self.policy_mean[idx] + torch.matmul(self.cov_decom[idx], sample)[:,0]
         self.actor.update_mean(self.sampled_mean)
 
     def close(self):
