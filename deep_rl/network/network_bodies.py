@@ -12,8 +12,11 @@ class NatureConvBody(nn.Module):
         super(NatureConvBody, self).__init__()
         self.feature_dim = 512
         self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4))
+#         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = layer_init(nn.Conv2d(32, 64, kernel_size=4, stride=2))
+#         self.bn2 = nn.BatchNorm2d(64)
         self.conv3 = layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1))
+#         self.bn3 = nn.BatchNorm2d(64)
         if noisy_linear:
             self.fc4 = NoisyLinear(7 * 7 * 64, self.feature_dim)
         else:

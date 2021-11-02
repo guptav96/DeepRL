@@ -16,6 +16,7 @@ class BDQNActor(BaseActor):
     def __init__(self, config, sampled_mean=None):
         BaseActor.__init__(self, config)
         self.config = config
+        self.current_action = 0
         self.sampled_mean = sampled_mean
         self.start()
 
@@ -30,19 +31,11 @@ class BDQNActor(BaseActor):
         if self._state is None:
             self._state = self._task.reset()
         config = self.config
-        if config.noisy_linear:
-            self._network.reset_noise()
         with config.lock:
             prediction = self._network(config.state_normalizer(self._state))
 #         q_values = self.compute_q(prediction)
         q_values = prediction['q']
 
-        # if config.noisy_linear:
-        #     epsilon = 0
-        # elif self._total_steps < config.exploration_steps:
-        #     epsilon = 1
-        # else:
-        #     epsilon = config.random_action_prob()
         # action = epsilon_greedy(epsilon, q_values)
         action = to_np(torch.argmax(torch.matmul(q_values, self.sampled_mean.T), 1))
         next_state, reward, done, info = self._task.step(action)
@@ -70,40 +63,43 @@ class BDQNAgent(BaseAgent):
         self.var_k = config.var_k
         self.num_actions = config.action_dim
         self.layer_size = 512
-        self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
-        self.policy_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
-        self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size))
-        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size)) + torch.eye(self.layer_size)
+        self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
+        self.policy_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
+        self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
+        print('hey',self.target_mean.get_device())
+        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size), device='cuda') + torch.eye(self.layer_size, device='cuda')
         self.cov_decom = self.policy_cov
         for idx in range(self.num_actions):
             self.policy_cov[idx] = torch.eye(self.layer_size)
             self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx] + self.policy_cov[idx].T)/.2)
         self.target_cov = self.policy_cov
-        self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size)
-        self.py = torch.zeros(self.num_actions, self.layer_size)
+        self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size, device='cuda')
+        self.py = torch.zeros(self.num_actions, self.layer_size, device='cuda')
         
         self.actor = BDQNActor(config, self.sampled_mean)
         self.actor.set_network(self.network)
         self.total_steps = 0
 
-    def bayes_regression(self):
+    def update_posterior(self):
         self.ppt *= 0
         self.py *= 0 
         if self.total_steps > self.config.exploration_steps:
+            transitions = self.replay.sample()
+            states = self.config.state_normalizer(transitions.state)
+            next_states = self.config.state_normalizer(transitions.next_state)
+            masks = tensor(transitions.mask)
+            rewards = tensor(transitions.reward)
+            actions = tensor(transitions.action).long()
+            
             with torch.no_grad():
-                for idx in range(self.config.batch_size):
-                    transitions = self.replay.sample(1)
-                    states = self.config.state_normalizer(transitions.state)
-                    next_states = self.config.state_normalizer(transitions.next_state)
-                    masks = tensor(transitions.mask)
-                    rewards = tensor(transitions.reward)
-                    actions = tensor(transitions.action).long()
-                    policy_state_rep, q, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
-                    self.ppt[int(actions[0])] += torch.matmul(policy_state_rep.T, policy_state_rep)
-                    self.py[int(actions[0])] += policy_state_rep[0].T * q_target
+                policy_state_rep, _, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
+            
+            for idx in range(self.config.batch_size):
+                self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep[idx].unsqueeze(0).T, policy_state_rep[idx].unsqueeze(0))
+                self.py[int(actions[idx])] += policy_state_rep[idx].T * q_target[idx]
 
             for idx in range(self.num_actions):
-                inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size))
+                inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size, device='cuda'))
                 self.policy_mean[idx] = torch.matmul(inv, self.py[idx])/self.noise_var
                 self.policy_cov[idx] = self.var_k * inv
             
@@ -115,7 +111,7 @@ class BDQNAgent(BaseAgent):
 
     def thompson_sample(self):
         for idx in range(self.num_actions):
-            sample = torch.normal(0, 1, size=(self.layer_size, 1))
+            sample = torch.normal(0, 1, size=(self.layer_size, 1), device='cuda')
             self.sampled_mean[idx] = self.policy_mean[idx] + torch.matmul(self.cov_decom[idx], sample)[:,0]
         self.actor.update_mean(self.sampled_mean)
 
@@ -127,7 +123,7 @@ class BDQNAgent(BaseAgent):
         self.config.state_normalizer.set_read_only()
         state = self.config.state_normalizer(state)
         q = self.network(state)['q']
-        action = to_np(torch.argmax(torch.matmul(tensor(q_values), self.sampled_mean.T), 1))
+        action = to_np(torch.argmax(torch.matmul(q_values, self.sampled_mean.T), 1))
         # action = to_np(q.argmax(-1))
         self.config.state_normalizer.unset_read_only()
         return action
@@ -140,7 +136,7 @@ class BDQNAgent(BaseAgent):
         with torch.no_grad():
             # sampled_mean dim num_action * layer_size
             # q_next = self.target_network(next_states)['q'].detach()
-            q_next = torch.matmul(self.target_network(next_states)['q'].detach(), self.target_mean.T)
+            q_next = torch.matmul(self.target_network(next_states)['q'], self.target_mean.T)
             if self.config.double_q:
                 best_actions = torch.matmul(self.network(next_states)['q'], self.policy_mean.T).max(1)[1]
                 # best_actions = torch.argmax(self.network(next_states)['q'], dim=-1)
@@ -201,7 +197,7 @@ class BDQNAgent(BaseAgent):
         
         if self.total_steps / self.config.sgd_update_frequency % \
                 self.config.bdqn_learn_frequency == 0:
-            self.bayes_regression()
+            self.update_posterior()
 
         if self.total_steps / self.config.sgd_update_frequency % \
                 self.config.thompson_sampling_freq == 0:

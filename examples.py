@@ -5,6 +5,7 @@
 #######################################################################
 
 from deep_rl import *
+from torch.multiprocessing import set_start_method
 
 
 # DQN
@@ -88,12 +89,12 @@ def dqn_pixel(**kwargs):
     config.state_normalizer = ImageNormalizer()
     config.reward_normalizer = SignNormalizer()
     config.target_network_update_freq = 10000
-    config.exploration_steps = 50000
+    config.exploration_steps = 20000
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
     config.gradient_clip = 5
-    config.double_q = False
-    config.async_actor = True
+    config.double_q = True
+    config.async_actor = False
     run_steps(DQNAgent(config))
 
 def bdqn_pixel(**kwargs):
@@ -109,7 +110,7 @@ def bdqn_pixel(**kwargs):
     config.eval_env = config.task_fn()
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
-        params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
+        params, lr=0.0025, alpha=0.95, eps=0.01, centered=True)
     config.network_fn = lambda: BDQNNet(NatureConvBody(in_channels=config.history_length))
     config.batch_size = 32
     config.discount = 0.99
@@ -130,17 +131,17 @@ def bdqn_pixel(**kwargs):
     config.state_normalizer = ImageNormalizer()
     config.reward_normalizer = SignNormalizer()
     config.target_network_update_freq = 10000
-    config.exploration_steps = 50000
+    config.exploration_steps = 20000 #20000
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
     config.thompson_sampling_freq = 1000
-    config.bdqn_learn_frequency = 20000
+    config.bdqn_learn_frequency = 50000 #100000
     config.prior_var = 0.001
     config.noise_var = 1
     config.var_k = 0.001
     config.gradient_clip = 5
     config.double_q = True
-    config.async_actor = True
+    config.async_actor = False
     run_steps(BDQNAgent(config))
 
 
@@ -670,8 +671,8 @@ if __name__ == '__main__':
     set_one_thread()
     random_seed()
     # -1 is CPU, a positive integer is the index of GPU
-    select_device(-1)
-    # select_device(0)
+#     select_device(-1)
+    select_device(0)
 
     game = 'CartPole-v0'
     # dqn_feature(game=game, n_step=1, replay_cls=UniformReplay, async_replay=True, noisy_linear=True)
@@ -690,7 +691,7 @@ if __name__ == '__main__':
     # td3_continuous(game=game)
 
     game = 'PongNoFrameskip-v4'
-    bdqn_pixel(game=game, n_step=1, replay_cls=UniformReplay, async_replay=False)
+    dqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=True)
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
     # rainbow_pixel(game=game, async_replay=False)
