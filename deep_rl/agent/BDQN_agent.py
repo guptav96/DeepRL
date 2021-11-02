@@ -8,7 +8,6 @@ from ..network import *
 from ..component import *
 from ..utils import *
 import time
-import math
 from .BaseAgent import *
 
 
@@ -66,7 +65,6 @@ class BDQNAgent(BaseAgent):
         self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
         self.policy_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
         self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
-        print('hey',self.target_mean.get_device())
         self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size), device='cuda') + torch.eye(self.layer_size, device='cuda')
         self.cov_decom = self.policy_cov
         for idx in range(self.num_actions):
@@ -134,7 +132,6 @@ class BDQNAgent(BaseAgent):
     def find_qvals(self, states, next_states, masks, rewards, actions):
         config = self.config
         with torch.no_grad():
-            # sampled_mean dim num_action * layer_size
             # q_next = self.target_network(next_states)['q'].detach()
             q_next = torch.matmul(self.target_network(next_states)['q'], self.target_mean.T)
             if self.config.double_q:
