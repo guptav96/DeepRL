@@ -12,11 +12,11 @@ from .BaseAgent import *
 
 
 class BDQNActor(BaseActor):
-    def __init__(self, config, sampled_mean=None):
+    def __init__(self, config):
         BaseActor.__init__(self, config)
         self.config = config
         self.current_action = 0
-        self.sampled_mean = sampled_mean
+        self.sampled_mean = 0
         self.start()
 
     def compute_q(self, prediction):
@@ -74,7 +74,8 @@ class BDQNAgent(BaseAgent):
         self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size, device='cuda')
         self.py = torch.zeros(self.num_actions, self.layer_size, device='cuda')
         
-        self.actor = BDQNActor(config, self.sampled_mean)
+        self.actor = BDQNActor(config)
+        self.actor.update_mean(self.sampled_mean)
         self.actor.set_network(self.network)
         self.total_steps = 0
 
@@ -91,7 +92,7 @@ class BDQNAgent(BaseAgent):
             
             with torch.no_grad():
                 policy_state_rep, _, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
-            
+
             for idx in range(self.config.batch_size):
                 self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep[idx].unsqueeze(0).T, policy_state_rep[idx].unsqueeze(0))
                 self.py[int(actions[idx])] += policy_state_rep[idx].T * q_target[idx]
