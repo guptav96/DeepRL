@@ -110,7 +110,7 @@ def bdqn_pixel(**kwargs):
     config.eval_env = config.task_fn()
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
-        params, lr=0.0025, alpha=0.95, eps=0.01, centered=True)
+        params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
     config.network_fn = lambda: BDQNNet(NatureConvBody(in_channels=config.history_length))
     config.batch_size = 32
     config.discount = 0.99
@@ -690,8 +690,8 @@ if __name__ == '__main__':
     # ddpg_continuous(game=game)
     # td3_continuous(game=game)
 
-    game = 'PongNoFrameskip-v4'
-    dqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=True)
+    game = 'AsterixNoFrameskip-v4'
+    bdqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=True, run=1, remark='prioritized-replay')
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
     # rainbow_pixel(game=game, async_replay=False)
