@@ -57,6 +57,7 @@ class BDQNAgent(BaseAgent):
         self.target_network = config.network_fn()
         self.target_network.load_state_dict(self.network.state_dict())
         self.optimizer = config.optimizer_fn(self.network.parameters())
+        self.target_batch_size = 20000
         self.prior_var = config.prior_var
         self.noise_var = config.noise_var
         self.var_k = config.var_k
@@ -83,7 +84,7 @@ class BDQNAgent(BaseAgent):
         self.ppt *= 0
         self.py *= 0 
         if self.total_steps > self.config.exploration_steps:
-            transitions = self.replay.sample()
+            transitions = self.replay.sample(self.target_batch_size)
             states = self.config.state_normalizer(transitions.state)
             next_states = self.config.state_normalizer(transitions.next_state)
             masks = tensor(transitions.mask)
@@ -93,7 +94,7 @@ class BDQNAgent(BaseAgent):
             with torch.no_grad():
                 policy_state_rep, _, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
 
-            for idx in range(self.config.batch_size):
+            for idx in range(self.target_batch_size):
                 self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep[idx].unsqueeze(0).T, policy_state_rep[idx].unsqueeze(0))
                 self.py[int(actions[idx])] += policy_state_rep[idx].T * q_target[idx]
 
@@ -107,6 +108,9 @@ class BDQNAgent(BaseAgent):
 
             for idx in range(self.num_actions):
                 self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)/2)
+
+            if self.replay.buffer_len() > self.target_batch_size:
+                self.target_batch_size = self.replay.buffer_len()
 
     def thompson_sample(self):
         for idx in range(self.num_actions):
