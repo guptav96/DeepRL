@@ -25,15 +25,11 @@ class DQNActor(BaseActor):
         if self._state is None:
             self._state = self._task.reset()
         config = self.config
-        if config.noisy_linear:
-            self._network.reset_noise()
         with config.lock:
             prediction = self._network(config.state_normalizer(self._state))
         q_values = self.compute_q(prediction)
 
-        if config.noisy_linear:
-            epsilon = 0
-        elif self._total_steps < config.exploration_steps:
+        if self._total_steps < config.exploration_steps:
             epsilon = 1
         else:
             epsilon = config.random_action_prob()
@@ -133,6 +129,5 @@ class DQNAgent(BaseAgent):
             with config.lock:
                 self.optimizer.step()
 
-        if self.total_steps / self.config.sgd_update_frequency % \
-                self.config.target_network_update_freq == 0:
+        if self.total_steps % self.config.target_network_update_freq == 0:
             self.target_network.load_state_dict(self.network.state_dict())

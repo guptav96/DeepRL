@@ -202,12 +202,12 @@ class ReplayWrapper(mp.Process):
     EXIT = 2
     UPDATE_PRIORITIES = 3
 
-    def __init__(self, replay_cls, replay_kwargs, async=True):
+    def __init__(self, replay_cls, replay_kwargs, async_=True):
         mp.Process.__init__(self)
         self.replay_kwargs = replay_kwargs
         self.replay_cls = replay_cls
         self.cache_len = 2
-        if async:
+        if async_:
             self.pipe, self.worker_pipe = mp.Pipe()
             self.start()
         else:
@@ -263,12 +263,12 @@ class ReplayWrapper(mp.Process):
     def feed(self, exp):
         self.pipe.send([self.FEED, exp])
 
-    def sample(self):
+    def sample(self, replay_cls = PrioritizedReplay):
         self.pipe.send([self.SAMPLE, None])
         cache_id, data = self.pipe.recv()
         if data is not None:
             self.cache = data
-        return self.replay_cls.TransitionCLS(*self.cache[cache_id])
+        return replay_cls.TransitionCLS(*self.cache[cache_id])
 
     def update_priorities(self, info):
         self.pipe.send([self.UPDATE_PRIORITIES, info])
