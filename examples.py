@@ -66,7 +66,7 @@ def dqn_pixel(**kwargs):
     config.eval_env = config.task_fn()
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
-        params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
+        params, lr=0.00025/4, alpha=0.95, eps=0.01, centered=True)
     config.network_fn = lambda: VanillaNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     # config.network_fn = lambda: DuelingNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
     config.random_action_prob = LinearSchedule(1.0, 0.01, 1e6)
@@ -92,7 +92,7 @@ def dqn_pixel(**kwargs):
     config.exploration_steps = 20000
     # config.exploration_steps = 100
     config.sgd_update_frequency = 4
-    config.gradient_clip = 5
+    config.gradient_clip = 10
     config.double_q = True
     config.async_actor = False
     run_steps(DQNAgent(config))
@@ -101,7 +101,7 @@ def bdqn_pixel(**kwargs):
     generate_tag(kwargs)
     kwargs.setdefault('log_level', 0)
     kwargs.setdefault('n_step', 1)
-    kwargs.setdefault('replay_cls', PrioritizedReplay)
+    kwargs.setdefault('replay_cls', UniformReplay)
     kwargs.setdefault('async_replay', True)
     config = Config()
     config.merge(kwargs)
@@ -110,7 +110,7 @@ def bdqn_pixel(**kwargs):
     config.eval_env = config.task_fn()
 
     config.optimizer_fn = lambda params: torch.optim.RMSprop(
-        params, lr=0.00025, alpha=0.95, eps=0.01, centered=True)
+        params, lr=0.0025, alpha=0.95, eps=0.01, centered=True)
     config.network_fn = lambda: BDQNNet(NatureConvBody(in_channels=config.history_length))
     config.batch_size = 32
     config.discount = 0.99
@@ -138,8 +138,8 @@ def bdqn_pixel(**kwargs):
     config.bdqn_learn_frequency = 50000 #100000
     config.prior_var = 0.001
     config.noise_var = 1
-    config.var_k = 0.001
-    config.gradient_clip = 5
+    config.var_k = 0.0005
+    config.gradient_clip = 10
     config.double_q = True
     config.async_actor = False
     run_steps(BDQNAgent(config))
@@ -690,8 +690,8 @@ if __name__ == '__main__':
     # ddpg_continuous(game=game)
     # td3_continuous(game=game)
 
-    game = 'AsterixNoFrameskip-v4'
-    bdqn_pixel(game=game, n_step=1, replay_cls=PrioritizedReplay, async_replay=True, run=1, remark='prioritized-replay')
+    game = 'BreakoutNoFrameskip-v4'
+    bdqn_pixel(game=game, n_step=3, replay_cls=PrioritizedReplay, async_replay=True, run=0, remark='doublebdqnprioritized3')
     # quantile_regression_dqn_pixel(game=game)
     # categorical_dqn_pixel(game=game)
     # rainbow_pixel(game=game, async_replay=False)

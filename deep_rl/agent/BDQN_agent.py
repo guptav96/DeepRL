@@ -57,7 +57,7 @@ class BDQNAgent(BaseAgent):
         self.target_network = config.network_fn()
         self.target_network.load_state_dict(self.network.state_dict())
         self.optimizer = config.optimizer_fn(self.network.parameters())
-        self.target_batch_size = 20000
+        self.target_batch_size = 100000
         self.prior_var = config.prior_var
         self.noise_var = config.noise_var
         self.var_k = config.var_k
@@ -65,13 +65,13 @@ class BDQNAgent(BaseAgent):
         self.layer_size = 512
         self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
         self.policy_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
-        self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
-        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size), device='cuda') + torch.eye(self.layer_size, device='cuda')
+#         self.target_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
+        self.policy_cov = torch.normal(0, 1, size=(self.num_actions, self.layer_size, self.layer_size), device='cuda')
         self.cov_decom = self.policy_cov
         for idx in range(self.num_actions):
             self.policy_cov[idx] = torch.eye(self.layer_size)
             self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx] + self.policy_cov[idx].T)/.2)
-        self.target_cov = self.policy_cov
+#         self.target_cov = self.policy_cov
         self.ppt = torch.zeros(self.num_actions, self.layer_size, self.layer_size, device='cuda')
         self.py = torch.zeros(self.num_actions, self.layer_size, device='cuda')
         
@@ -84,33 +84,31 @@ class BDQNAgent(BaseAgent):
         self.ppt *= 0
         self.py *= 0 
         if self.total_steps > self.config.exploration_steps:
-            transitions = self.replay.sample(self.target_batch_size)
-            states = self.config.state_normalizer(transitions.state)
-            next_states = self.config.state_normalizer(transitions.next_state)
-            masks = tensor(transitions.mask)
-            rewards = tensor(transitions.reward)
-            actions = tensor(transitions.action).long()
-            
-            with torch.no_grad():
-                policy_state_rep, _, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
+            print('Updating Posterior!')
+            self.target_batch_size = min(100000, self.total_steps)
+            print('Number of samples used:', int(self.target_batch_size/self.config.batch_size) * self.config.batch_size)
+            for sample_idx in range(int(self.target_batch_size/self.config.batch_size)):
+                transitions = self.replay.sample()
+                states = self.config.state_normalizer(transitions.state)
+                next_states = self.config.state_normalizer(transitions.next_state)
+                masks = tensor(transitions.mask)
+                rewards = tensor(transitions.reward)
+                actions = tensor(transitions.action).long()
 
-            for idx in range(self.target_batch_size):
-                self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep[idx].unsqueeze(0).T, policy_state_rep[idx].unsqueeze(0))
-                self.py[int(actions[idx])] += policy_state_rep[idx].T * q_target[idx]
+                with torch.no_grad():
+                    policy_state_rep, _, q_target =  self.find_qvals(states, next_states, masks, rewards, actions)
+
+                for idx in range(self.config.batch_size):
+                    self.ppt[int(actions[idx])] += torch.matmul(policy_state_rep[idx].unsqueeze(0).T, policy_state_rep[idx].unsqueeze(0))
+                    self.py[int(actions[idx])] += policy_state_rep[idx].T * q_target[idx]
 
             for idx in range(self.num_actions):
                 inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size, device='cuda'))
                 self.policy_mean[idx] = torch.matmul(inv, self.py[idx])/self.noise_var
                 self.policy_cov[idx] = self.var_k * inv
-            
-            self.target_mean = self.policy_mean
-            self.target_cov = self.policy_cov
 
             for idx in range(self.num_actions):
                 self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)/2)
-
-            if self.replay.buffer_len() > self.target_batch_size:
-                self.target_batch_size = self.replay.buffer_len()
 
     def thompson_sample(self):
         for idx in range(self.num_actions):
@@ -138,7 +136,7 @@ class BDQNAgent(BaseAgent):
         config = self.config
         with torch.no_grad():
             # q_next = self.target_network(next_states)['q'].detach()
-            q_next = torch.matmul(self.target_network(next_states)['q'], self.target_mean.T)
+            q_next = torch.matmul(self.target_network(next_states)['q'], self.policy_mean.T)
             if self.config.double_q:
                 best_actions = torch.matmul(self.network(next_states)['q'], self.policy_mean.T).max(1)[1]
                 # best_actions = torch.argmax(self.network(next_states)['q'], dim=-1)
@@ -193,14 +191,11 @@ class BDQNAgent(BaseAgent):
             with config.lock:
                 self.optimizer.step()
 
-        if self.total_steps / self.config.sgd_update_frequency % \
-                self.config.target_network_update_freq == 0:
+        if self.total_steps % self.config.target_network_update_freq == 0:
             self.target_network.load_state_dict(self.network.state_dict())
         
-        if self.total_steps / self.config.sgd_update_frequency % \
-                self.config.bdqn_learn_frequency == 0:
+        if self.total_steps % self.config.bdqn_learn_frequency == 0:
             self.update_posterior()
 
-        if self.total_steps / self.config.sgd_update_frequency % \
-                self.config.thompson_sampling_freq == 0:
+        if self.total_steps % self.config.thompson_sampling_freq == 0:
             self.thompson_sample()

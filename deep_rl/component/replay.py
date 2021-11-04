@@ -234,16 +234,10 @@ class ReplayWrapper(mp.Process):
             sample(1)
 
         def sample(cur_cache, batch_size=None):
-            if batch_size:
-                batch_data = replay.sample(batch_size)
-            else:
-                batch_data = replay.sample()
+            batch_data = replay.sample()
             batch_data = [tensor(x) for x in batch_data]
             for cache_x, x in zip(cache[cur_cache], batch_data):
                 cache_x.copy_(x)
-        
-        def buffer_len():
-            return self.tree.total()
 
         while True:
             op, data = self.worker_pipe.recv()
