@@ -28,6 +28,7 @@ class BDQNActor(BaseActor):
         q_values = prediction['q']
 
         action = to_np(torch.argmax(torch.matmul(q_values, self.sampled_mean.T), 1))
+#         print(action)
         next_state, reward, done, info = self._task.step(action)
         entry = [self._state, action, reward, next_state, done, info]
         self._total_steps += 1
@@ -51,7 +52,6 @@ class BDQNAgent(BaseAgent):
         self.target_batch_size = 100000
         self.prior_var = config.prior_var
         self.noise_var = config.noise_var
-        self.var_k = config.var_k
         self.num_actions = config.action_dim
         self.layer_size = 512
         self.sampled_mean = torch.normal(0, 0.01, size=(self.num_actions, self.layer_size), device='cuda')
@@ -76,7 +76,7 @@ class BDQNAgent(BaseAgent):
             # print('Updating Posterior!')
             self.target_batch_size = min(100000, self.total_steps)
             for sample_idx in range(int(self.target_batch_size/self.config.batch_size)):
-                transitions = self.replay.sample(UniformReplay)
+                transitions = self.replay.usample()
                 states = self.config.state_normalizer(transitions.state)
                 next_states = self.config.state_normalizer(transitions.next_state)
                 masks = tensor(transitions.mask)
@@ -93,7 +93,7 @@ class BDQNAgent(BaseAgent):
             for idx in range(self.num_actions):
                 inv = torch.inverse(self.ppt[idx]/self.noise_var + 1/self.prior_var*torch.eye(self.layer_size, device='cuda'))
                 self.policy_mean[idx] = torch.matmul(inv, self.py[idx])/self.noise_var
-                self.policy_cov[idx] = self.var_k * inv
+                self.policy_cov[idx] = self.config.var_k() * inv
 
             for idx in range(self.num_actions):
                 self.cov_decom[idx] = torch.linalg.cholesky((self.policy_cov[idx]+self.policy_cov[idx].T)/2)

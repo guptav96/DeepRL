@@ -17,8 +17,8 @@ def dqn_pixel(**kwargs):
 
     config.optimizer_fn = lambda params: torch.optim.Adam(params, lr=0.00025/4, eps=1.5e-04)
     config.network_fn = lambda: VanillaNet(config.action_dim, NatureConvBody(in_channels=config.history_length))
-    config.random_action_prob = LinearSchedule(1.0, 0.01, 1e6)
-    config.batch_size = 256
+    config.random_action_prob = LinearSchedule(1.0, 0.1, 1e6)
+    config.batch_size = 32
     config.discount = 0.99
     config.history_length = 4
     config.max_steps = int(2e7)
@@ -39,9 +39,12 @@ def dqn_pixel(**kwargs):
     config.target_network_update_freq = 10000
     config.exploration_steps = 20000
     config.sgd_update_frequency = 4
-    config.gradient_clip = 5
+    config.gradient_clip = 10
     config.double_q = True
-    config.async_actor = True
+    config.async_actor = False
+    config.eval_only = False
+    config.eval_episodes = 100
+    config.save_interval = 2e6
     run_steps(DQNAgent(config))
 
 def bdqn_pixel(**kwargs):
@@ -83,10 +86,12 @@ def bdqn_pixel(**kwargs):
     config.var_k = LinearSchedule(1e-2, 1e-4, config.max_steps)
     config.gradient_clip = 10
     config.double_q = True
-    config.async_actor = True
+    config.async_actor = False
+    config.eval_only = True
     run_steps(BDQNAgent(config))
 
 if __name__ == '__main__':
+    print(torch.__version__)
     mkdir('log')
     mkdir('tf_log')
     set_one_thread()
@@ -94,7 +99,8 @@ if __name__ == '__main__':
     # -1 is CPU, a positive integer is the index of GPU
     # select_device(-1)
     select_device(0)
+    
 
     game = 'BreakoutNoFrameskip-v4'
-    dqn_pixel(game=game, n_step=3, replay_cls=PrioritizedReplay, async_replay=True)
-    bdqn_pixel(game=game, n_step=3, replay_cls=PrioritizedReplay, async_replay=True)
+    dqn_pixel(game=game, n_step=3, replay_cls=PrioritizedReplay, async_replay=True, run=0, remark='dqn32adam')
+#     bdqn_pixel(game=game, n_step=3, replay_cls=PrioritizedReplay, async_replay=True)

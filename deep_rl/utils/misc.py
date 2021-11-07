@@ -21,6 +21,11 @@ def run_steps(agent):
     agent_name = agent.__class__.__name__
     t0 = time.time()
     while True:
+        if config.eval_only:
+            agent.load('dqn')
+            agent.eval_episodes()
+            agent.close()
+            break
         if config.save_interval and not agent.total_steps % config.save_interval:
             agent.save('data/%s-%s-%d' % (agent_name, config.tag, agent.total_steps))
         if config.log_interval and not agent.total_steps % config.log_interval:

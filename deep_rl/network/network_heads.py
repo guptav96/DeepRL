@@ -19,3 +19,13 @@ class VanillaNet(nn.Module):
         phi = self.body(tensor(x))
         q = self.fc_head(phi)
         return dict(q=q)
+
+class BDQNNet(nn.Module):
+    def __init__(self, body):
+        super(BDQNNet, self).__init__()
+        self.body = body
+        self.to(Config.DEVICE)
+
+    def forward(self, x):
+        q = self.body(tensor(x))
+        return dict(q=q)

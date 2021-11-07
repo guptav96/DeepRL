@@ -263,12 +263,19 @@ class ReplayWrapper(mp.Process):
     def feed(self, exp):
         self.pipe.send([self.FEED, exp])
 
-    def sample(self, replay_cls = PrioritizedReplay):
+    def sample(self):
         self.pipe.send([self.SAMPLE, None])
         cache_id, data = self.pipe.recv()
         if data is not None:
             self.cache = data
-        return replay_cls.TransitionCLS(*self.cache[cache_id])
+        return self.replay_cls.TransitionCLS(*self.cache[cache_id])
+
+    def usample(self):
+        self.pipe.send([self.SAMPLE, None])
+        cache_id, data = self.pipe.recv()
+        if data is not None:
+            self.cache = data
+        return UniformReplay.TransitionCLS(*self.cache[cache_id][:-2])
 
     def update_priorities(self, info):
         self.pipe.send([self.UPDATE_PRIORITIES, info])
