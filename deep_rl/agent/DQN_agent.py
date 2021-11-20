@@ -30,11 +30,10 @@ class DQNActor(BaseActor):
         with config.lock:
             prediction = self._network(config.state_normalizer(self._state))
         q_values = self.compute_q(prediction)
-
-        if config.noisy_linear:
-            epsilon = 0
-        elif self._total_steps < config.exploration_steps:
+       
+        if self._total_steps < config.exploration_steps:
             epsilon = 1
+            
         else:
             epsilon = config.random_action_prob()
         action = epsilon_greedy(epsilon, q_values)
@@ -113,9 +112,6 @@ class DQNAgent(BaseAgent):
 
         if self.total_steps > self.config.exploration_steps:
             transitions = self.replay.sample()
-            if config.noisy_linear:
-                self.target_network.reset_noise()
-                self.network.reset_noise()
             loss = self.compute_loss(transitions)
             if isinstance(transitions, PrioritizedTransition):
                 priorities = loss.abs().add(config.replay_eps).pow(config.replay_alpha)

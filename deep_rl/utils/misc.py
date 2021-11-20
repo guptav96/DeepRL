@@ -28,7 +28,7 @@ def run_steps(agent):
             t0 = time.time()
         if config.eval_interval and not agent.total_steps % config.eval_interval:
             agent.eval_episodes()
-        if config.max_steps and agent.total_steps >= config.max_steps:
+        if (config.tune and agent.num_episodes == 1000) or config.max_steps and agent.total_steps >= config.max_steps:
             agent.close()
             break
         agent.step()

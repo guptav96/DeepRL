@@ -56,9 +56,9 @@ class Config:
         self.random_action_prob = None
         self.__eval_env = None
         self.log_interval = int(1e3)
-        self.save_interval = 2e6
-        self.eval_interval = 0
-        self.eval_episodes = 10
+        self.save_interval = 5e6
+        self.eval_interval = 5e6
+        self.eval_episodes = 20
         self.async_actor = True
         self.tasks = False
         self.replay_type = Config.DEFAULT_REPLAY
@@ -66,6 +66,7 @@ class Config:
         self.shared_repr = False
         self.noisy_linear = False
         self.n_step = 1
+        self.tune = False
 
     @property
     def eval_env(self):

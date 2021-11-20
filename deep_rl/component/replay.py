@@ -92,7 +92,7 @@ class UniformReplay(Storage):
     def sample(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
-
+        
         sampled_data = []
         while len(sampled_data) < batch_size:
             transition = self.construct_transition(np.random.randint(0, self.size()))
@@ -100,7 +100,8 @@ class UniformReplay(Storage):
                 sampled_data.append(transition)
         sampled_data = zip(*sampled_data)
         sampled_data = list(map(lambda x: np.asarray(x), sampled_data))
-        return Transition(*sampled_data)
+        transition = Transition(*sampled_data)
+        return transition
 
     def valid_index(self, index):
         if index - self.history_length + 1 >= 0 and index + self.n_step < self.pos:
@@ -160,6 +161,19 @@ class PrioritizedReplay(UniformReplay):
     def feed(self, data):
         super().feed(data)
         self.tree.add(self.max_priority, None)
+    
+    def usample(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        sampled_data = []
+        while len(sampled_data) < batch_size:
+            transition = self.construct_transition(np.random.randint(0, self.size()))
+            if transition is not None:
+                sampled_data.append(transition)
+        sampled_data = zip(*sampled_data)
+        sampled_data = list(map(lambda x: np.asarray(x), sampled_data))
+        return Transition(*sampled_data)
 
     def sample(self, batch_size=None):
         if batch_size is None:
@@ -201,12 +215,14 @@ class ReplayWrapper(mp.Process):
     SAMPLE = 1
     EXIT = 2
     UPDATE_PRIORITIES = 3
+    USAMPLE = 4
 
     def __init__(self, replay_cls, replay_kwargs, async_=True):
         mp.Process.__init__(self)
         self.replay_kwargs = replay_kwargs
         self.replay_cls = replay_cls
         self.cache_len = 2
+        self.ucache_len = 2
         if async_:
             self.pipe, self.worker_pipe = mp.Pipe()
             self.start()
@@ -220,23 +236,41 @@ class ReplayWrapper(mp.Process):
         replay = self.replay_cls(**self.replay_kwargs)
 
         cache = []
+        ucache = []
 
         cache_initialized = False
+        ucache_initialized = False
         cur_cache = 0
+        cur_ucache = 0
 
-        def set_up_cache():
-            batch_data = replay.sample()
+        def set_up_cache(batch_size = None):
+            batch_data = replay.sample(batch_size)
             batch_data = [tensor(x) for x in batch_data]
             for i in range(self.cache_len):
                 cache.append([x.clone() for x in batch_data])
                 for x in cache[i]: x.share_memory_()
-            sample(0)
-            sample(1)
+            sample(0, batch_size)
+            sample(1, batch_size)
+        
+        def set_up_ucache(batch_size = None):
+            batch_data = replay.usample(batch_size)
+            batch_data = [tensor(x) for x in batch_data]
+            for i in range(self.ucache_len):
+                ucache.append([x.clone() for x in batch_data])
+                for x in ucache[i]: x.share_memory_()
+            usample(0, batch_size)
+            usample(1, batch_size)
 
         def sample(cur_cache, batch_size=None):
-            batch_data = replay.sample()
+            batch_data = replay.sample(batch_size)
             batch_data = [tensor(x) for x in batch_data]
             for cache_x, x in zip(cache[cur_cache], batch_data):
+                cache_x.copy_(x)
+        
+        def usample(cur_ucache, batch_size=None):
+            batch_data = replay.usample(batch_size)
+            batch_data = [tensor(x) for x in batch_data]
+            for cache_x, x in zip(ucache[cur_ucache], batch_data):
                 cache_x.copy_(x)
 
         while True:
@@ -247,11 +281,20 @@ class ReplayWrapper(mp.Process):
                 if cache_initialized:
                     self.worker_pipe.send([cur_cache, None])
                 else:
-                    set_up_cache()
+                    set_up_cache(data)
                     cache_initialized = True
                     self.worker_pipe.send([cur_cache, cache])
                 cur_cache = (cur_cache + 1) % 2
-                sample(cur_cache)
+                sample(cur_cache, data)
+            elif op == self.USAMPLE:
+                if ucache_initialized:
+                    self.worker_pipe.send([cur_ucache, None])
+                else:
+                    set_up_ucache(data)
+                    ucache_initialized = True
+                    self.worker_pipe.send([cur_ucache, ucache])
+                cur_ucache = (cur_ucache + 1) % 2
+                usample(cur_ucache, data)
             elif op == self.UPDATE_PRIORITIES:
                 replay.update_priorities(data)
             elif op == self.EXIT:
@@ -263,12 +306,19 @@ class ReplayWrapper(mp.Process):
     def feed(self, exp):
         self.pipe.send([self.FEED, exp])
 
-    def sample(self):
-        self.pipe.send([self.SAMPLE, None])
+    def sample(self, batch_size=None):
+        self.pipe.send([self.SAMPLE, batch_size])
         cache_id, data = self.pipe.recv()
         if data is not None:
             self.cache = data
         return self.replay_cls.TransitionCLS(*self.cache[cache_id])
+    
+    def usample(self, batch_size=None):
+        self.pipe.send([self.USAMPLE, batch_size])
+        cache_id, data = self.pipe.recv()
+        if data is not None:
+            self.ucache = data
+        return UniformReplay.TransitionCLS(*self.ucache[cache_id])
 
     def update_priorities(self, info):
         self.pipe.send([self.UPDATE_PRIORITIES, info])

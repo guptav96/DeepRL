@@ -17,9 +17,9 @@ def select_device(gpu_id):
         Config.DEVICE = torch.device('cpu')
 
 
-def tensor(x):
+def tensor(x, type_=torch.float32):
     if isinstance(x, torch.Tensor):
-        return x
+        return x.to(dtype = type_, device = Config.DEVICE)
     x = np.asarray(x, dtype=np.float32)
     x = torch.from_numpy(x).to(Config.DEVICE)
     return x

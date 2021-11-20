@@ -8,7 +8,7 @@ from .network_utils import *
 
 
 class NatureConvBody(nn.Module):
-    def __init__(self, in_channels=4, noisy_linear=False):
+    def __init__(self, in_channels=4):
         super(NatureConvBody, self).__init__()
         self.feature_dim = 512
         self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4))
@@ -17,15 +17,7 @@ class NatureConvBody(nn.Module):
         self.bn2 = nn.BatchNorm2d(64)
         self.conv3 = layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1))
         self.bn3 = nn.BatchNorm2d(64)
-        if noisy_linear:
-            self.fc4 = NoisyLinear(7 * 7 * 64, self.feature_dim)
-        else:
-            self.fc4 = layer_init(nn.Linear(7 * 7 * 64, self.feature_dim))
-        self.noisy_linear = noisy_linear
-
-    def reset_noise(self):
-        if self.noisy_linear:
-            self.fc4.reset_noise()
+        self.fc4 = layer_init(nn.Linear(7 * 7 * 64, self.feature_dim))
 
     def forward(self, x):
         y = F.relu(self.bn1(self.conv1(x)))

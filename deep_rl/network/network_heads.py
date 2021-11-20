@@ -7,6 +7,12 @@
 from .network_utils import *
 from .network_bodies import *
 
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+        
+    def forward(self, x):
+        return x
 
 class VanillaNet(nn.Module, BaseNet):
     def __init__(self, output_dim, body):
